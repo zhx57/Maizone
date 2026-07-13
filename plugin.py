@@ -8,6 +8,8 @@ from .image import set_images_plugin_context
 from .utils import set_utils_plugin_context, read_feed, send_feed
 from .tasks import FeedMonitor, ScheduleSender, set_tasks_logger
 
+_SEND_FEED_RPC_TIMEOUT_MS = 45 * 60 * 1000
+
 class MaizonePlugin(MaiBotPlugin):
     config_model = MaizonePluginConfig
     personality = ""
@@ -98,7 +100,11 @@ class MaizonePlugin(MaiBotPlugin):
             return False
 
     # ========== 发送说说 ==========
-    @Command("sendfeed",pattern=r"^/sendfeed\s+(?P<topic>.+)$")
+    @Command(
+        "sendfeed",
+        pattern=r"^/sendfeed\s+(?P<topic>.+)$",
+        timeout_ms=_SEND_FEED_RPC_TIMEOUT_MS,
+    )
     async def handle_send_feed(self, **kwargs):
         matched = kwargs.get("matched_groups", {})
         topic = matched.get("topic", "").strip()
@@ -123,6 +129,7 @@ class MaizonePlugin(MaiBotPlugin):
             ToolParameterInfo(name="topic", param_type=ToolParamType.STRING, description="说说主题", required=True),
             ToolParameterInfo(name="nickname", param_type=ToolParamType.STRING, description="要求发送说说的用户的昵称", required=True)
         ],
+        timeout_ms=_SEND_FEED_RPC_TIMEOUT_MS,
     )
     async def handle_send_feed_tool(self, topic: str, nickname: str, **kwargs):
         users = await self.ctx.db.get(model_name="PersonInfo", filters={"person_name": nickname})
@@ -219,4 +226,4 @@ class MaizonePlugin(MaiBotPlugin):
 
 def create_plugin() -> MaizonePlugin:
     """创建插件实例。"""
-    return MaizonePlugin() 
+    return MaizonePlugin()

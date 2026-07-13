@@ -101,6 +101,17 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
         bool: 如果发送成功返回True，否则返回False。
         str: 发送结果，可能为"已发送说说：【文本内容】" 或 "发送说说失败"。
     """
+    try:
+        async with asyncio.timeout(32 * 60):
+            return await _send_feed(topic)
+    except TimeoutError:
+        logger = plugin_context.ctx.logger  # type: ignore
+        logger.error("发送说说超时，已停止后续生图和发布")
+        return False, "发送说说超时，请稍后重试"
+
+
+async def _send_feed(topic: str) -> Tuple[bool, str]:
+    """在业务总超时内生成内容、配图并发布说说。"""
     logger = plugin_context.ctx.logger  # type: ignore
     config = plugin_context.config  # type: ignore
     # ===== 根据主题和历史说说生成内容 =====
