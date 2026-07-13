@@ -65,6 +65,24 @@ class MaizonePlugin(MaiBotPlugin):
         del scope
         del config_data 
         del version
+
+    def get_components(self) -> list[dict[str, object]]:
+        """将长任务超时写入 Host 实际读取的组件 metadata 顶层。"""
+        components = super().get_components()
+        pending = {"sendfeed", "send_feed"}
+        for component in components:
+            name = str(component.get("name") or "")
+            if name not in pending:
+                continue
+            metadata = component.get("metadata")
+            if not isinstance(metadata, dict):
+                raise TypeError(f"组件 {name} 的 metadata 必须是字典")
+            metadata["timeout_ms"] = _SEND_FEED_RPC_TIMEOUT_MS
+            pending.remove(name)
+        if pending:
+            missing = ", ".join(sorted(pending))
+            raise RuntimeError(f"SDK 未返回发说说组件: {missing}")
+        return components
             
     # 权限检查
     def check_permission(self, qq_account: str, tool: str) -> bool:
