@@ -30,7 +30,7 @@ class SendConfig(PluginConfigBase):
     # 图片模式
     image_mode: str = Field(default="only_emoji", description="图片使用方式: only_ai(仅AI生成)/only_emoji(仅表情包)/random(随机混合)")
     ai_probability: float = Field(default=0.5, description="random模式下使用ai生图概率")
-    image_number: int = Field(default=1, description="每条说说附带图片数量（最多生成3张）")
+    image_number: int = Field(default=1, description="每条说说附带图片数量（AI配图最多生成1张）")
     # 提示词相关配置
     prompt: str = Field(default="你是'{bot_personality}'，现在是'{current_time}'你想写一条主题是'{topic}'的说说发表在qq空间上，"
                                 "{bot_expression}，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，只输出一条说说正文的内容，不要输出多余内容"

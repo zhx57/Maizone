@@ -102,7 +102,7 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
         str: 发送结果，可能为"已发送说说：【文本内容】" 或 "发送说说失败"。
     """
     try:
-        async with asyncio.timeout(32 * 60):
+        async with asyncio.timeout(150):
             return await _send_feed(topic)
     except TimeoutError:
         logger = plugin_context.ctx.logger  # type: ignore

@@ -2,8 +2,8 @@ import random
 import base64
 import asyncio
 from pathlib import Path
-from openai import OpenAI
-import requests
+from openai import AsyncOpenAI
+import httpx
 
 class NoLogger:
     def info(self, msg):
@@ -43,34 +43,6 @@ async def generate_image(
     返回:
         - 图片的二进制数据
     """
-    task = asyncio.create_task(
-        asyncio.to_thread(
-            _generate_image_sync,
-            base_url,
-            api_key,
-            model,
-            prompt,
-            reference,
-        )
-    )
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        # 线程中的付费请求无法被 asyncio 取消；等待其收尾后恢复取消，
-        # 防止继续生成剩余图片或发布一条调用方已放弃的说说。
-        logger.warning("生图请求已提交，等待请求完成后再响应取消")
-        await task
-        raise
-
-
-def _generate_image_sync(
-    base_url: str,
-    api_key: str,
-    model: str,
-    prompt: str,
-    reference: str | None = None,
-) -> bytes:
-    """在线程中执行同步 OpenAI 生图和图片下载，避免阻塞插件 Runner。"""
     body = {
         "model": model,
         "prompt": prompt,
@@ -95,9 +67,12 @@ def _generate_image_sync(
             }
 
     # 生图属于付费非幂等请求，禁用 SDK 自动重试，避免网络抖动时重复扣费。
-    client = OpenAI(base_url=base_url, api_key=api_key, timeout=600.0, max_retries=0)
+    client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=110.0, max_retries=0)
     logger.info(f"正在使用模型 {model} 生成图片: {prompt}")
-    response = client.images.generate(**body)
+    try:
+        response = await client.images.generate(**body)
+    finally:
+        await client.close()
     if response is None or not response.data:
         logger.error("图片生成失败，未收到有效响应")
         return b''
@@ -105,9 +80,10 @@ def _generate_image_sync(
     img = response.data[0]
     if img.url:
         logger.info("下载图片中...")
-        r = requests.get(img.url, timeout=30)
-        r.raise_for_status()
-        return r.content
+        async with httpx.AsyncClient(timeout=20.0) as http_client:
+            response = await http_client.get(img.url)
+            response.raise_for_status()
+            return response.content
     elif img.b64_json:
         logger.info("解码 base64 图片...")
         return base64.b64decode(img.b64_json)
@@ -185,20 +161,22 @@ async def generate_images(message: str, image_mode: str = "only_emoji", image_nu
     image_mode: only_emoji（仅表情包）、only_ai（仅AI生成）、random（随机）
     ai_probability: 当image_mode为random时，生成AI图片的概率，取值范围0-1
     """
-    safe_image_number = max(0, min(int(image_number), 3))
-    if safe_image_number != image_number:
-        logger.warning(f"图片数量 {image_number} 超出安全范围，本次按 {safe_image_number} 张处理")
+    safe_image_number = max(0, int(image_number))
     images_list: list[bytes] = []
     if image_mode == "only_emoji":
         # 仅表情包
         images_list = await generate_emoji_images(message, safe_image_number)
     elif image_mode == "only_ai":
         # 仅AI生成
-        images_list = await generate_ai_images(message, safe_image_number)
+        if safe_image_number > 1:
+            logger.warning(f"AI图片数量 {safe_image_number} 超出安全范围，本次按 1 张处理")
+        images_list = await generate_ai_images(message, min(safe_image_number, 1))
     elif image_mode == "random":
         # 随机
+        ai_attempted = False
         for _ in range(safe_image_number):
-            if random.random() < ai_probability:
+            if not ai_attempted and random.random() < ai_probability:
+                ai_attempted = True
                 image_bytes = await generate_ai_image(message)
                 if image_bytes:
                     images_list.append(image_bytes)

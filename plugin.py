@@ -1,3 +1,5 @@
+import asyncio
+
 from maibot_sdk import Command, MaiBotPlugin, Tool, API
 from maibot_sdk.types import ToolParameterInfo, ToolParamType
 
@@ -8,7 +10,7 @@ from .image import set_images_plugin_context
 from .utils import set_utils_plugin_context, read_feed, send_feed
 from .tasks import FeedMonitor, ScheduleSender, set_tasks_logger
 
-_SEND_FEED_RPC_TIMEOUT_MS = 45 * 60 * 1000
+_SEND_FEED_RPC_TIMEOUT_MS = 180 * 1000
 
 class MaizonePlugin(MaiBotPlugin):
     config_model = MaizonePluginConfig
@@ -124,20 +126,25 @@ class MaizonePlugin(MaiBotPlugin):
         timeout_ms=_SEND_FEED_RPC_TIMEOUT_MS,
     )
     async def handle_send_feed(self, **kwargs):
-        matched = kwargs.get("matched_groups", {})
-        topic = matched.get("topic", "").strip()
-        stream_id = kwargs["stream_id"]
-        user_id = kwargs["user_id"]
-        # ===== 检查权限 =====
-        if not self.check_permission(user_id, "send_feed"):
-            await self.ctx.send.text("Permission denied", stream_id)
-            return False, "权限不足", 1
-        # ===== 发送说说 =====
-        success, message = await send_feed(topic)
-        if not success:
-            self.ctx.logger.error(message)
-        await self.ctx.send.text(message, stream_id)
-        return success, message, 1
+        try:
+            async with asyncio.timeout(170):
+                matched = kwargs.get("matched_groups", {})
+                topic = matched.get("topic", "").strip()
+                stream_id = kwargs["stream_id"]
+                user_id = kwargs["user_id"]
+                # ===== 检查权限 =====
+                if not self.check_permission(user_id, "send_feed"):
+                    await self.ctx.send.text("Permission denied", stream_id)
+                    return False, "权限不足", 1
+                # ===== 发送说说 =====
+                success, message = await send_feed(topic)
+                if not success:
+                    self.ctx.logger.error(message)
+                await self.ctx.send.text(message, stream_id)
+                return success, message, 1
+        except TimeoutError:
+            self.ctx.logger.error("sendfeed Command 总执行时间超过 170 秒")
+            return False, "发送说说超时，请稍后重试", 1
         
 
     @Tool(
@@ -150,15 +157,20 @@ class MaizonePlugin(MaiBotPlugin):
         timeout_ms=_SEND_FEED_RPC_TIMEOUT_MS,
     )
     async def handle_send_feed_tool(self, topic: str, nickname: str, **kwargs):
-        users = await self.ctx.db.get(model_name="PersonInfo", filters={"person_name": nickname})
-        user_id = users[0].get("user_id") if users else ""
-        # ===== 检查权限 =====
-        if not self.check_permission(user_id, "send_feed"):
-            # 由主程序回复
-            return False, "该用户无权命令发送说说", 1
-        # ===== 发送说说 =====
-        success, message = await send_feed(topic)
-        return success, message, 1
+        try:
+            async with asyncio.timeout(170):
+                users = await self.ctx.db.get(model_name="PersonInfo", filters={"person_name": nickname})
+                user_id = users[0].get("user_id") if users else ""
+                # ===== 检查权限 =====
+                if not self.check_permission(user_id, "send_feed"):
+                    # 由主程序回复
+                    return False, "该用户无权命令发送说说", 1
+                # ===== 发送说说 =====
+                success, message = await send_feed(topic)
+                return success, message, 1
+        except TimeoutError:
+            self.ctx.logger.error("send_feed Tool 总执行时间超过 170 秒")
+            return False, "发送说说超时，请稍后重试", 1
 
     # ========== 阅读空间 ==========
     @Command("readfeed",pattern=r"^/readfeed\s+(?P<target_name>.+)$")
